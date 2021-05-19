@@ -90,7 +90,7 @@ class NICClient(object):
     IST_HOST = "whois.afilias-srs.net"
     CHAT_HOST = "whois.nic.chat"
     WEBSITE_HOST = "whois.nic.website"
-    
+
 
     WHOIS_RECURSE = 0x01
     WHOIS_QUICK = 0x02
@@ -119,12 +119,14 @@ class NICClient(object):
                     break
         return nhost
 
-    def whois(self, query, hostname, flags, many_results=False):
+    def whois(self, query, hostname, flags, **kwargs):
         """Perform initial lookup with TLD whois server
         then, if the quick flag is false, search that result
         for the region-specifc whois server and do a lookup
         there for contact details
         """
+        many_results = kwargs.get("many_results", False)
+        timeout = kwargs.get("timeout", 10)
         response = b''
         if "SOCKS" in os.environ:
             try:
@@ -146,7 +148,7 @@ class NICClient(object):
             s.set_proxy(socks.SOCKS5, socksproxy, int(port), True, socks_user, socks_password)
         else:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(10)
+        s.settimeout(timeout)
         try: # socket.connect in a try, in order to allow things like looping whois on different domains without stopping on timeouts: https://stackoverflow.com/questions/25447803/python-socket-connection-exception
             s.connect((hostname, 43))
             try:
@@ -176,15 +178,15 @@ class NICClient(object):
             nhost = None
             response = response.decode('utf-8', 'replace')
             if 'with "=xxx"' in response:
-                return self.whois(query, hostname, flags, True)
+                return self.whois(query, hostname, flags, many_results=True, **kwargs)
             if flags & NICClient.WHOIS_RECURSE and nhost is None:
                 nhost = self.findwhois_server(response, hostname, query)
             if nhost is not None:
-                response += self.whois(query, nhost, 0)
+                response += self.whois(query, nhost, 0, **kwargs)
         except socket.error as exc: # 'response' is assigned a value (also a str) even on socket timeout
-            print("Error trying to connect to socket: closing socket") 
+            print("Error trying to connect to socket: closing socket")
             s.close()
-            response = "Socket not responding"   
+            response = "Socket not responding"
         return response
 
     def choose_server(self, domain):
@@ -261,7 +263,7 @@ class NICClient(object):
         else:
             return tld + NICClient.QNICHOST_TAIL
 
-    def whois_lookup(self, options, query_arg, flags):
+    def whois_lookup(self, options, query_arg, flags, **kwargs):
         """Main entry point: Perform initial lookup on TLD whois server,
         or other server to get region-specific whois server, then if quick
         flag is false, perform a second lookup on the region-specific
@@ -270,7 +272,8 @@ class NICClient(object):
         # whoud happen when this function is called by other than main
         if options is None:
             options = {}
-
+        import ipdb
+        ipdb.set_trace()
         if ('whoishost' not in options or options['whoishost'] is None) \
                 and ('country' not in options or options['country'] is None):
             self.use_qnichost = True
@@ -282,16 +285,17 @@ class NICClient(object):
             result = self.whois(
                 query_arg,
                 options['country'] + NICClient.QNICHOST_TAIL,
-                flags
+                flags,
+                **kwargs
             )
         elif self.use_qnichost:
             nichost = self.choose_server(query_arg)
             if nichost is not None:
-                result = self.whois(query_arg, nichost, flags)
+                result = self.whois(query_arg, nichost, flags, **kwargs)
             else:
                 result = ''
         else:
-            result = self.whois(query_arg, options['whoishost'], flags)
+            result = self.whois(query_arg, options['whoishost'], flags, **kwargs)
         return result
 
 
